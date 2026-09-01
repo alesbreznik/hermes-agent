@@ -230,6 +230,19 @@ class OpenRouterProfile(ProviderProfile):
 
         return extra_body, top_level
 
+    def get_max_tokens(self, model: str | None) -> int | None:
+        """Cap default output tokens on OpenRouter to prevent HTTP 402 billing pre-authorization errors.
+
+        OpenRouter holds credit pre-authorizations based on max_tokens upfront. When
+        max_tokens defaults to 128,000, OpenRouter rejects accounts with small balances with:
+        'HTTP 402: This request requires more credits, or fewer max_tokens. You requested up to 128000 tokens...'.
+        For free models (:free), allow 8192; for paid/unspecified, default to 4096 tokens
+        unless the user explicitly configured agent.max_tokens.
+        """
+        if model and ":free" in model.lower():
+            return 8192
+        return 4096
+
 
 openrouter = OpenRouterProfile(
     name="openrouter",

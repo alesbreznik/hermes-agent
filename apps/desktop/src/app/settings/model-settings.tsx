@@ -840,11 +840,19 @@ export function ModelSettings({ onMainModelChanged, scopeProfile }: ModelSetting
                   <SelectValue placeholder={m.model} />
                 </SelectTrigger>
                 <SelectContent>
-                  {withActive(selectedProviderModels, selectedModel).map(model => (
-                    <SelectItem key={model} value={model}>
-                      {model}
-                    </SelectItem>
-                  ))}
+                  {withActive(selectedProviderModels, selectedModel).map(model => {
+                    const slash = model.lastIndexOf('/')
+                    const clean = slash >= 0 ? model.slice(slash + 1) : model
+                    const org = slash >= 0 ? model.slice(0, slash) : ''
+                    const isLocal =
+                      selectedProviderRow?.slug === 'openai-api' || selectedProviderRow?.slug === 'local'
+                    return (
+                      <SelectItem key={model} value={model}>
+                        {clean}
+                        {isLocal ? ' 🟢 [Local GPU]' : org ? ` (${org})` : ''}
+                      </SelectItem>
+                    )
+                  })}
                 </SelectContent>
               </Select>
               <Button

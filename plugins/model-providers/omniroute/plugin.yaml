@@ -1,0 +1,5 @@
+name: omniroute-provider
+kind: model-provider
+version: 1.0.0
+description: OmniRoute AI Gateway & Unified Proxy Router (port 20128)
+author: OmniRoute

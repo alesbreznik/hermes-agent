@@ -266,9 +266,10 @@ _ANTHROPIC_OUTPUT_LIMITS = {
     "qwen3":               65_536,
 }
 
-# For any model not in the table, assume the highest current limit.
-# Future Anthropic models are unlikely to have *less* output capacity.
-_ANTHROPIC_DEFAULT_OUTPUT_LIMIT = 128_000
+# For any model not in the table, assume safe default output capacity (8,192).
+# Avoids requesting 128k output tokens which causes HTTP 402 billing pre-authorization
+# failures on cloud proxies and aggregators like OpenRouter.
+_ANTHROPIC_DEFAULT_OUTPUT_LIMIT = 8_192
 
 
 def _get_anthropic_max_output(model: str) -> int:

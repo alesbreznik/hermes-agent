@@ -78,11 +78,11 @@ def resolve_exec_command() -> str:
             # third-party import (#90292) — silently, since Terminal=false.
             # sys.executable is the interpreter actually running Hermes (the
             # venv one), so prefix it explicitly.
-            argv = [str(Path(sys.executable).resolve()), str(resolved), "desktop"]
+            argv = [str(Path(sys.executable)), str(resolved), "desktop"]
         else:
             argv = [str(resolved), "desktop"]
     else:
-        argv = [str(Path(sys.executable).resolve()), "-m", "hermes_cli.main", "desktop"]
+        argv = [str(Path(sys.executable)), "-m", "hermes_cli.main", "desktop"]
     return " ".join(_quote_exec_arg(a) for a in argv)
 
 
@@ -106,8 +106,14 @@ def _needs_interpreter(bin_path: Path) -> bool:
     # A python shebang pointing INSIDE the running interpreter's environment
     # already resolves correctly; anything else (``/usr/bin/env python3``,
     # a system path) would escape the venv when spawned by the DE.
-    exe_dir = str(Path(sys.executable).resolve().parent)
-    return exe_dir not in shebang
+    exe_dirs = {
+        str(Path(sys.executable).parent).lower(),
+        str(Path(sys.executable).resolve().parent).lower(),
+        str(Path(sys.prefix) / "bin").lower(),
+        str(Path(sys.prefix).resolve() / "bin").lower(),
+        str(Path(sys.prefix)).lower(),
+    }
+    return not any(d in shebang for d in exe_dirs)
 
 
 def _quote_exec_arg(arg: str) -> str:

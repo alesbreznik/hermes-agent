@@ -94,6 +94,15 @@ _LINUX_BROWSER_GROUPS = (
             "/opt/microsoft/msedge/msedge",
         ),
     ),
+    (
+        ("opera", "opera-stable"),
+        (
+            "/usr/bin/opera",
+            "/usr/bin/opera-stable",
+            "/opt/opera/opera",
+            "/snap/bin/opera",
+        ),
+    ),
 )
 
 _LINUX_BIN_NAMES = tuple(name for names, _ in _LINUX_BROWSER_GROUPS for name in names)
@@ -117,7 +126,7 @@ _LINUX_INSTALL_PATHS = tuple(path for _, paths in _LINUX_BROWSER_GROUPS for path
 # ``BraveOHTML`` ProgId, ``com.brave.Browser.origin`` bundle id) so it
 # side-by-side installs with regular Brave — its profile is NOT under
 # Brave-Browser and must never be conflated with the ``brave`` key.
-_CHROMIUM_BROWSERS = ("chrome", "edge", "brave", "chromium", "brave-origin")
+_CHROMIUM_BROWSERS = ("chrome", "edge", "brave", "chromium", "brave-origin", "opera")
 
 # Windows UserChoice ProgId prefixes → canonical browser key. Matched
 # case-insensitively by prefix so version suffixes (e.g. ``ChromeHTML.X``)
@@ -133,6 +142,7 @@ _WINDOWS_PROGID_MAP = (
     ("braveohtml", "brave-origin"),
     ("bravehtml", "brave"),
     ("chromiumhtm", "chromium"),
+    ("opera", "opera"),
 )
 
 # Pre-release ProgId prefixes we recognize but do NOT support (their profiles
@@ -167,6 +177,7 @@ _LINUX_DESKTOP_MAP = (
     ("microsoft-edge", "edge"),
     ("com.microsoft.edge", "edge"),
     ("msedge", "edge"),
+    ("opera", "opera"),
 )
 
 # Non-stable Linux channel .desktop fragments — recognized, unsupported.
@@ -248,6 +259,11 @@ def _real_profile_relparts(browser: str) -> tuple:
             ("BraveSoftware", "Brave-Origin", "User Data"),
             "BraveSoftware/Brave-Origin",
         ),
+        "opera": (
+            ("com.operasoftware.Opera",),
+            ("Opera Software", "Opera Stable"),
+            "opera",
+        ),
     }[browser]
 
 
@@ -307,6 +323,7 @@ def chromium_executable(browser: str, system: str | None = None) -> str | None:
             "brave": "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
             "brave-origin": "/Applications/Brave Origin.app/Contents/MacOS/Brave Origin",
             "edge": "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+            "opera": "/Applications/Opera.app/Contents/MacOS/Opera",
         }[browser]
         return app if os.path.isfile(app) else None
     if system == "Windows":
@@ -319,6 +336,7 @@ def chromium_executable(browser: str, system: str | None = None) -> str | None:
                 ("BraveSoftware", "Brave-Origin", "Application", "brave-origin.exe"),
             ),
             "edge": (("Microsoft", "Edge", "Application", "msedge.exe"),),
+            "opera": (("Opera Software", "Opera Stable", "opera.exe"),),
         }[browser]
         bases = [
             os.environ.get("PROGRAMFILES", r"C:\Program Files"),
@@ -334,6 +352,7 @@ def chromium_executable(browser: str, system: str | None = None) -> str | None:
         "brave": ("brave-browser", "brave-browser-stable", "brave"),
         "brave-origin": ("brave-origin",),
         "edge": ("microsoft-edge", "microsoft-edge-stable"),
+        "opera": ("opera", "opera-stable"),
     }[browser]
     for name in linux:
         found = shutil.which(name)

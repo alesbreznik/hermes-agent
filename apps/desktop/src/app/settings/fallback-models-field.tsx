@@ -1,9 +1,10 @@
 import { useQuery } from '@tanstack/react-query'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { getGlobalModelOptions } from '@/hermes'
+import type { ModelOptionProvider } from '@/hermes'
 import { useI18n } from '@/i18n'
 import { Plus, X } from '@/lib/icons'
 import { cn } from '@/lib/utils'
@@ -53,16 +54,16 @@ function entriesEqual(a: FallbackEntry[], b: FallbackEntry[]): boolean {
   )
 }
 
+import {
+  buildCanonicalModelCatalog,
+  isLocalOrConfiguredProvider,
+  isStrictLocalProvider
+} from '@/lib/canonical-models'
+
 /**
  * Structured editor for the top-level `fallback_providers` config list — a
  * chain of `{provider, model}` pairs tried in order when the default model
- * fails. Replaces the generic comma-string `list` input, which stringified the
- * objects to "[object Object], [object Object]".
- *
- * Mirrors the Auxiliary Models picker in `model-settings.tsx`: provider + model
- * selects sourced from `getGlobalModelOptions()`. Half-filled rows are kept in
- * local state and only complete pairs are emitted upward, so the config
- * autosave never persists a partial `{provider, model: ''}`.
+ * fails. Model-first dropdown layout: select model first, then host provider.
  */
 export function FallbackModelsField({
   value,
@@ -80,6 +81,12 @@ export function FallbackModelsField({
   })
 
   const providers = (modelOptions.data?.providers ?? []).filter(provider => provider.slug)
+
+  // Build canonical deduplicated catalog grouped by family, version, and variant
+  const { canonicalModels, canonicalMap, rawModelToCanonical, groupedByFamily } = useMemo(
+    () => buildCanonicalModelCatalog(providers),
+    [providers]
+  )
 
   const [rows, setRows] = useState<FallbackEntry[]>(() => normalizeEntries(value))
   // Last complete chain we emitted (or seeded). Autosave echoes the same
@@ -115,35 +122,84 @@ export function FallbackModelsField({
     <div className="grid w-full gap-1.5">
       {rows.length === 0 && <p className="text-xs text-muted-foreground">{m.fallbackEmpty}</p>}
       {rows.map((entry, index) => {
-        const providerRow = providers.find(provider => provider.slug === entry.provider)
-        const catalog = providerRow?.models ?? []
-        // Keep an out-of-catalog model selectable so an existing custom
-        // provider/model renders instead of showing a blank box.
-        const modelItems = entry.model && !catalog.includes(entry.model) ? [entry.model, ...catalog] : catalog
+        const currentCanonicalKey =
+          rawModelToCanonical.get(entry.model) || (canonicalMap.has(entry.model) ? entry.model : entry.model)
+        const currentModelEntry = canonicalMap.get(currentCanonicalKey)
+        const availableProviderBindings = currentModelEntry?.providers || []
+
+        const displayProviders =
+          availableProviderBindings.length > 0
+            ? availableProviderBindings.map(b => ({
+                slug: b.provider.slug,
+                name: b.isLocal ? `Local GPU (${b.provider.slug})` : b.provider.name || b.provider.slug
+              }))
+            : providers.map(p => ({
+                slug: p.slug,
+                name: p.name || p.slug
+              }))
 
         return (
           <div className="flex flex-wrap items-center gap-2" key={index}>
             <span className="w-4 shrink-0 text-center font-mono text-[0.7rem] text-muted-foreground">{index + 1}</span>
-            <Select onValueChange={provider => updateRow(index, { provider, model: '' })} value={entry.provider}>
-              <SelectTrigger className={cn('min-w-36', CONTROL_TEXT)}>
-                <SelectValue placeholder={m.provider} />
-              </SelectTrigger>
-              <SelectContent>
-                {providers.map(provider => (
-                  <SelectItem key={provider.slug} value={provider.slug}>
-                    {provider.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select onValueChange={model => updateRow(index, { model })} value={entry.model}>
+            <Select
+              onValueChange={cKey => {
+                const modelEntry = canonicalMap.get(cKey)
+                if (modelEntry && modelEntry.providers.length > 0) {
+                  const existingBinding = modelEntry.providers.find(p => p.provider.slug === entry.provider)
+                  const bestBinding = existingBinding || modelEntry.providers[0]
+                  updateRow(index, { model: bestBinding.modelId, provider: bestBinding.provider.slug })
+                } else {
+                  updateRow(index, { model: cKey })
+                }
+              }}
+              value={currentCanonicalKey}
+            >
               <SelectTrigger className={cn('min-w-52 flex-1', CONTROL_TEXT)}>
                 <SelectValue placeholder={m.model} />
               </SelectTrigger>
               <SelectContent>
-                {modelItems.map(model => (
-                  <SelectItem key={model} value={model}>
-                    {model}
+                {Array.from(groupedByFamily.entries()).map(([family, models]) => {
+                  if (!models.length) return null
+                  return (
+                    <div key={family} className="py-1">
+                      <div className="px-2 py-1 text-[10px] font-semibold tracking-wider text-muted-foreground uppercase">
+                        {family === 'Local GPU' ? '🟢 Local GPU Hardware' : `${family} Family`}
+                      </div>
+                      {models.map(m => {
+                        const provCount = m.providers.length
+                        return (
+                          <SelectItem key={m.canonicalKey} value={m.canonicalKey}>
+                            {m.displayName}
+                            {m.isLocal ? ' 🟢 [Local GPU]' : ''}
+                            {provCount > 1 ? ` · ${provCount} hosts` : ''}
+                          </SelectItem>
+                        )
+                      })}
+                    </div>
+                  )
+                })}
+              </SelectContent>
+            </Select>
+            <Select
+              disabled={!entry.model && !entry.provider}
+              onValueChange={provider => {
+                if (currentModelEntry) {
+                  const binding = currentModelEntry.providers.find(p => p.provider.slug === provider)
+                  const nextModel = binding ? binding.modelId : entry.model
+                  updateRow(index, { provider, model: nextModel })
+                } else {
+                  updateRow(index, { provider })
+                }
+              }}
+              value={entry.provider}
+            >
+              <SelectTrigger className={cn('min-w-36', CONTROL_TEXT)}>
+                <SelectValue placeholder={m.provider} />
+              </SelectTrigger>
+              <SelectContent>
+                {displayProviders.map(provider => (
+                  <SelectItem key={provider.slug} value={provider.slug}>
+                    {provider.name}
                   </SelectItem>
                 ))}
               </SelectContent>

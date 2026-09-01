@@ -518,6 +518,14 @@ PROVIDER_REGISTRY: Dict[str, ProviderConfig] = {
         api_key_env_vars=("XIAOMI_API_KEY",),
         base_url_env_var="XIAOMI_BASE_URL",
     ),
+    "omniroute": ProviderConfig(
+        id="omniroute",
+        name="OmniRoute AI Gateway",
+        auth_type="api_key",
+        inference_base_url="http://127.0.0.1:20128/v1",
+        api_key_env_vars=("OMNIROUTE_API_KEY",),
+        base_url_env_var="OMNIROUTE_BASE_URL",
+    ),
     "tencent-tokenhub": ProviderConfig(
         id="tencent-tokenhub",
         name="Tencent TokenHub",

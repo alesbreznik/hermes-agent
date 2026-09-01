@@ -59,6 +59,7 @@ import { useBots } from './i18n'
 import { displayName, slugify } from './labels'
 import { McpSetupButton } from './mcp-setup'
 import { ModelPicker } from './model-picker'
+import type { FallbackRoute } from './model-picker'
 import type {
   CapabilityEntry,
   McpCatalogResponse,
@@ -138,6 +139,8 @@ export function CreateAgentDialog({ open, onClose, roster }: CreateAgentDialogPr
   const [cloneFrom, setCloneFrom] = useState('default')
   const [model, setModel] = useState('')
   const [provider, setProvider] = useState('')
+  const [fallbackProviders, setFallbackProviders] = useState<FallbackRoute[]>([])
+  const [autoFallback, setAutoFallback] = useState(true)
   const [soul, setSoul] = useState('')
   const [noSkills, setNoSkills] = useState(false)
   const [shareAuth, setShareAuth] = useState(true)
@@ -271,6 +274,8 @@ export function CreateAgentDialog({ open, onClose, roster }: CreateAgentDialogPr
     setCloneFrom('default')
     setModel('')
     setProvider('')
+    setFallbackProviders([])
+    setAutoFallback(true)
     setSoul('')
     setNoSkills(false)
     setShareAuth(true)
@@ -414,7 +419,11 @@ export function CreateAgentDialog({ open, onClose, roster }: CreateAgentDialogPr
         const capPayload: Pick<
           ProfileConfigurePayload,
           'disabled_skills' | 'enabled_mcp_servers' | 'enabled_toolsets'
-        > = {}
+        > & { fallback_providers?: FallbackRoute[] } = {}
+
+        if (fallbackProviders.length > 0) {
+          capPayload.fallback_providers = fallbackProviders
+        }
 
         if (dirtyCaps.skills && caps) {
           capPayload.disabled_skills = caps.skills.filter(s => !s.enabled).map(s => s.name)
@@ -684,6 +693,37 @@ export function CreateAgentDialog({ open, onClose, roster }: CreateAgentDialogPr
               value={description}
             />
           )}
+
+          {/* Model & Brain (Model-First with Auto-Fallback) */}
+          <div className="grid gap-2 rounded-md border border-(--ui-stroke-secondary) p-2.5">
+            <ModelPicker
+              autoFallback={autoFallback}
+              onChange={patch => {
+                if ('provider' in patch && patch.provider !== undefined) {
+                  setProvider(patch.provider)
+                }
+                if ('model' in patch && patch.model !== undefined) {
+                  setModel(patch.model)
+                }
+                if ('fallback_providers' in patch && patch.fallback_providers !== undefined) {
+                  setFallbackProviders(patch.fallback_providers)
+                }
+              }}
+              placeholderModel="inherited from launch profile"
+              value={{
+                provider,
+                model,
+                fallback_providers: fallbackProviders
+              }}
+            />
+            {fallbackProviders.length > 0 && autoFallback ? (
+              <div className="flex items-center gap-1.5 text-[0.7rem] text-(--ui-text-tertiary)">
+                <span className="inline-block size-1.5 rounded-full bg-emerald-500" />
+                <span>Auto-fallback: {fallbackProviders.map(f => `${f.provider}`).join(' → ')}</span>
+              </div>
+            ) : null}
+          </div>
+
           <Button
             className="flex items-center gap-1 text-xs font-medium text-(--ui-text-tertiary) hover:text-(--ui-text-secondary)"
             onClick={() => {
@@ -760,22 +800,6 @@ export function CreateAgentDialog({ open, onClose, roster }: CreateAgentDialogPr
                       </SelectContent>
                     </Select>
                   )}
-                  <ModelPicker
-                    onChange={patch => {
-                      if ('provider' in patch) {
-                        setProvider(patch.provider)
-                      }
-
-                      if ('model' in patch) {
-                        setModel(patch.model)
-                      }
-                    }}
-                    placeholderModel="inherited from launch profile"
-                    value={{
-                      provider,
-                      model
-                    }}
-                  />
                   {labeled(
                     'SOUL.md (optional — replaces the generated persona)',
                     <Textarea
