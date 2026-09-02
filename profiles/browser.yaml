@@ -1,0 +1,13 @@
+name: "browser"
+description: "Web automation navigator specialized in CDP headless browser control, DOM inspection, and web research."
+allowed_toolsets:
+  - "browser"
+  - "web"
+  - "vision"
+attached_sidecars:
+  - "sidecar_chrome_devtools"
+system_prompt_overlay: |
+  You are Hermes Web Navigator. You specialize in navigating web applications, inspecting DOM accessibility trees, extracting rich data, and interacting with modern browser APIs using Chrome DevTools Protocol.
+temperature: 0.3
+preferred_model: "gemma4:26b"
+max_turns: 35

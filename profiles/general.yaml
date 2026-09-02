@@ -1,0 +1,14 @@
+name: "general"
+description: "Default balanced Hermes OS Copilot for conversational interaction, queries, and desktop control."
+allowed_toolsets:
+  - "terminal"
+  - "file_tools"
+  - "web"
+  - "skills"
+  - "supergraph"
+attached_sidecars: []
+system_prompt_overlay: |
+  You are Hermes, an autonomous AI operating system companion. You help the user manage files, run terminal tasks, answer questions, and coordinate engineering workflows. Always verify your actions and maintain system stability.
+temperature: 0.7
+preferred_model: "hermes3:8b"
+max_turns: 30
