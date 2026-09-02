@@ -310,6 +310,21 @@ TOOLSETS = {
         "includes": [],
     },
 
+    "supergraph": {
+        "description": (
+            "Supergraph 4-Plane OS delegation and workgraph invocation. "
+            "Allows Hermes to dispatch high-level software engineering missions, "
+            "monitor DAG execution progress, and issue human-in-the-loop steering "
+            "or emergency abort signals to Supergraph (Port 8003/5104)."
+        ),
+        "tools": [
+            "supergraph_delegate",
+            "supergraph_status",
+            "supergraph_steer",
+        ],
+        "includes": [],
+    },
+
     "discord": {
         "description": "Discord read and participate tools (fetch messages, search members, create threads)",
         "tools": ["discord"],
