@@ -32169,8 +32169,55 @@ async def start_gateway(config: Optional[GatewayConfig] = None, replace: bool = 
                 "drain_timeout": _drain,
             }
 
+        def _human_review_handler(req: dict) -> dict:
+            try:
+                import shutil, subprocess
+                notify_bin = shutil.which("notify-send")
+                if notify_bin and any(k in os.environ for k in ("DISPLAY", "WAYLAND_DISPLAY", "DBUS_SESSION_BUS_ADDRESS")):
+                    urgency = "critical" if req.get("urgency") == "blocking" else "normal"
+                    title = f"[Supergraph HITL] {req.get('title', 'Review Required')}"
+                    body = f"Urgency: {str(req.get('urgency', 'normal')).upper()} | Task: {req.get('task_id', '')}\n{req.get('description', '')}"
+                    if req.get("options"):
+                        opts_str = " | ".join(f"[{opt.get('id', i+1)}] {opt.get('text', '')}" for i, opt in enumerate(req.get("options", [])))
+                        body += f"\nOptions: {opts_str}"
+                    subprocess.Popen(
+                        [notify_bin, "-u", urgency, "-a", "Supergraph", title, body],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                    )
+            except Exception as _ne:
+                logger.debug("Desktop notify in _human_review_handler failed: %s", _ne)
+
+            tg_delivered = False
+            try:
+                from gateway.config import Platform
+                tg_adapter = runner.adapters.get(Platform.TELEGRAM)
+                if tg_adapter and hasattr(tg_adapter, "send_human_review"):
+                    cfg = getattr(runner, "config", {})
+                    platforms_cfg = cfg.get("platforms", {}) if isinstance(cfg, dict) else getattr(cfg, "platforms", {})
+                    tg_cfg = platforms_cfg.get("telegram", {}) if isinstance(platforms_cfg, dict) else {}
+                    home_chan = tg_cfg.get("home_channel", {}) if isinstance(tg_cfg, dict) else {}
+                    chat_id = str(home_chan.get("chat_id") or "")
+                    if chat_id:
+                        _main_loop.call_soon_threadsafe(
+                            lambda: asyncio.create_task(tg_adapter.send_human_review(chat_id, req))
+                        )
+                        tg_delivered = True
+            except Exception as _tge:
+                logger.debug("Telegram notify in _human_review_handler failed: %s", _tge)
+
+            return {
+                "ok": True,
+                "event": "human_review_handled",
+                "item_id": req.get("item_id"),
+                "telegram_dispatched": tg_delivered,
+            }
+
         _control_server = GatewayControlServer(
-            verb_handlers={"pause-for-update": _pause_for_update_handler}
+            verb_handlers={
+                "pause-for-update": _pause_for_update_handler,
+                "human_review": _human_review_handler,
+            }
         )
         if not await _control_server.start():
             _control_server = None

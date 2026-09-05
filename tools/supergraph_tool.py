@@ -74,6 +74,11 @@ def supergraph_delegate(
                     "task_id": task_id,
                     "tracking_url": f"{BRIDGE_URL}/v1/bridge/task/{task_id}",
                     "message": f"Mission accepted by Supergraph Coordinator. Ticket: {task_id}",
+                    "conversational_hint": (
+                        f"Inform the user warmly that mission '{intent[:60]}' has been dispatched to Supergraph OS "
+                        f"(Ticket: {task_id}). Explain that progress is tracked in Kanban, and that you remain available "
+                        "for questions or further instructions while it executes in the background."
+                    ),
                     "local_only": local_only,
                     "auto_merge": auto_merge,
                 }
@@ -275,158 +280,131 @@ def run_deep_research(
     )
 
 
-# ---------------------------------------------------------------------------
-# Hermes Tool Registry Auto-Mount (if imported in hermes-agent environment)
-# ---------------------------------------------------------------------------
-try:
-    from tools.registry import registry
+# --- Registry ---
+from tools.registry import registry
 
-    DELEGATE_SCHEMA = {
-        "name": "supergraph_delegate",
-        "description": (
-            "Dispatches complex multi-stage engineering tasks to Supergraph 4-Plane OS (Port 8003/5104). "
-            "Returns an immediate async ticket and updates Kanban without blocking conversational flow."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "intent": {"type": "string", "description": "High-level goal prompt or engineering objective."},
-                "repo_root": {"type": "string", "description": "Target repository path. Defaults to current directory."},
-                "context_files": {"type": "array", "items": {"type": "string"}, "description": "List of key files involved."},
-                "strategy": {"type": "string", "enum": ["adaptive_dag", "sequential", "war_room"], "default": "adaptive_dag"},
-                "auto_merge": {"type": "boolean", "default": False, "description": "Auto-merge worktree on >=9.5 test score."},
-                "local_only": {"type": "boolean", "default": False, "description": "Strict local GPU execution constraint."},
-            },
-            "required": ["intent"],
+DELEGATE_SCHEMA = {
+    "name": "supergraph_delegate",
+    "description": (
+        "Dispatches complex multi-stage engineering tasks to Supergraph 4-Plane OS (Port 8003/5104). "
+        "Returns an immediate async ticket and updates Kanban without blocking conversational flow."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "intent": {"type": "string", "description": "High-level goal prompt or engineering objective."},
+            "repo_root": {"type": "string", "description": "Target repository path. Defaults to current directory."},
+            "context_files": {"type": "array", "items": {"type": "string"}, "description": "List of key files involved."},
+            "strategy": {"type": "string", "enum": ["adaptive_dag", "sequential", "war_room"], "default": "adaptive_dag"},
+            "auto_merge": {"type": "boolean", "default": False, "description": "Auto-merge worktree on >=9.5 test score."},
+            "local_only": {"type": "boolean", "default": False, "description": "Strict local GPU execution constraint."},
         },
-    }
+        "required": ["intent"],
+    },
+}
 
-    STATUS_SCHEMA = {
-        "name": "supergraph_status",
-        "description": "Checks the active status and DAG milestones of a delegated Supergraph mission.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "task_id": {"type": "string", "description": "Supergraph task or mission identifier."},
-            },
-            "required": ["task_id"],
+STATUS_SCHEMA = {
+    "name": "supergraph_status",
+    "description": "Checks the active status and DAG milestones of a delegated Supergraph mission.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "task_id": {"type": "string", "description": "Supergraph task or mission identifier."},
         },
-    }
+        "required": ["task_id"],
+    },
+}
 
-    STEER_SCHEMA = {
-        "name": "supergraph_steer",
-        "description": "Sends an operator pause, resume, guidance, or emergency abort signal to a running Supergraph mission.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "task_id": {"type": "string", "description": "Target Supergraph task identifier."},
-                "action": {"type": "string", "enum": ["abort", "pause", "resume", "inject_guidance"], "description": "Action verb."},
-                "content": {"type": "string", "description": "Guidance or abort rationale."},
-            },
-            "required": ["task_id", "action"],
+STEER_SCHEMA = {
+    "name": "supergraph_steer",
+    "description": "Sends an operator pause, resume, guidance, or emergency abort signal to a running Supergraph mission.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "task_id": {"type": "string", "description": "Target Supergraph task identifier."},
+            "action": {"type": "string", "enum": ["abort", "pause", "resume", "inject_guidance"], "description": "Action verb."},
+            "content": {"type": "string", "description": "Guidance or abort rationale."},
         },
-    }
+        "required": ["task_id", "action"],
+    },
+}
 
-    LIST_AGENTS_SCHEMA = {
-        "name": "list_standalone_agents",
-        "description": "Lists available standalone execution microagents (e.g. GPT-Researcher, Browser-Use, Open-Interpreter).",
-        "parameters": {
-            "type": "object",
-            "properties": {},
+LIST_AGENTS_SCHEMA = {
+    "name": "list_standalone_agents",
+    "description": "Lists available standalone execution microagents (e.g. GPT-Researcher, Browser-Use, Open-Interpreter).",
+    "parameters": {
+        "type": "object",
+        "properties": {},
+    },
+}
+
+STANDALONE_EXEC_SCHEMA = {
+    "name": "standalone_agent_execute",
+    "description": "Executes a specialized task on a standalone microagent (e.g. gpt_researcher, open_interpreter, browser_use, openhands, db_gpt).",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "agent_name": {"type": "string", "description": "Target agent identifier: researcher, browser_use, open_interpreter, openhands, db_gpt, letta."},
+            "task": {"type": "string", "description": "Structured task description or prompt."},
+            "parameters": {"type": "object", "description": "Optional parameters specific to the agent."},
         },
-    }
+        "required": ["agent_name", "task"],
+    },
+}
 
-    STANDALONE_EXEC_SCHEMA = {
-        "name": "standalone_agent_execute",
-        "description": "Executes a specialized task on a standalone microagent (e.g. gpt_researcher, open_interpreter, browser_use, openhands, db_gpt).",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "agent_name": {"type": "string", "description": "Target agent identifier: researcher, browser_use, open_interpreter, openhands, db_gpt, letta."},
-                "task": {"type": "string", "description": "Structured task description or prompt."},
-                "parameters": {"type": "object", "description": "Optional parameters specific to the agent."},
-            },
-            "required": ["agent_name", "task"],
+DEEP_RESEARCH_SCHEMA = {
+    "name": "run_deep_research",
+    "description": "Conducts deep multi-source web research and generates a structured research report with citations via standalone GPT-Researcher.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "topic": {"type": "string", "description": "Detailed research topic, questions, or brief."},
+            "report_type": {"type": "string", "enum": ["research_report", "detailed_report", "outline"], "default": "research_report"},
+            "sources": {"type": "array", "items": {"type": "string"}, "description": "Optional custom domains or URLs to prioritize."},
         },
-    }
+        "required": ["topic"],
+    },
+}
 
-    DEEP_RESEARCH_SCHEMA = {
-        "name": "run_deep_research",
-        "description": "Conducts deep multi-source web research and generates a structured research report with citations via standalone GPT-Researcher.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "topic": {"type": "string", "description": "Detailed research topic, questions, or brief."},
-                "report_type": {"type": "string", "enum": ["research_report", "detailed_report", "outline"], "default": "research_report"},
-                "sources": {"type": "array", "items": {"type": "string"}, "description": "Optional custom domains or URLs to prioritize."},
-            },
-            "required": ["topic"],
-        },
-    }
-
-    registry.register(
-        name="supergraph_delegate",
-        toolset="supergraph",
-        schema=DELEGATE_SCHEMA,
-        handler=lambda args: supergraph_delegate(**args),
-        emoji="🚀",
-    )
-    registry.register(
-        name="supergraph_status",
-        toolset="supergraph",
-        schema=STATUS_SCHEMA,
-        handler=lambda args: supergraph_status(**args),
-        emoji="📡",
-    )
-    registry.register(
-        name="supergraph_steer",
-        toolset="supergraph",
-        schema=STEER_SCHEMA,
-        handler=lambda args: supergraph_steer(**args),
-        emoji="🛑",
-    )
-    registry.register(
-        name="list_standalone_agents",
-        toolset="supergraph",
-        schema=LIST_AGENTS_SCHEMA,
-        handler=lambda args: list_standalone_agents(),
-        emoji="📋",
-    )
-    registry.register(
-        name="standalone_agent_execute",
-        toolset="supergraph",
-        schema=STANDALONE_EXEC_SCHEMA,
-        handler=lambda args: standalone_agent_execute(**args),
-        emoji="🤖",
-    )
-    registry.register(
-        name="run_deep_research",
-        toolset="supergraph",
-        schema=DEEP_RESEARCH_SCHEMA,
-        handler=lambda args: run_deep_research(**args),
-        emoji="🔬",
-    )
-    # Also register under research toolset
-    registry.register(
-        name="run_deep_research",
-        toolset="research",
-        schema=DEEP_RESEARCH_SCHEMA,
-        handler=lambda args: run_deep_research(**args),
-        emoji="🔬",
-    )
-    registry.register(
-        name="list_standalone_agents",
-        toolset="research",
-        schema=LIST_AGENTS_SCHEMA,
-        handler=lambda args: list_standalone_agents(),
-        emoji="📋",
-    )
-    registry.register(
-        name="standalone_agent_execute",
-        toolset="research",
-        schema=STANDALONE_EXEC_SCHEMA,
-        handler=lambda args: standalone_agent_execute(**args),
-        emoji="🤖",
-    )
-except ImportError:
-    pass
+registry.register(
+    name="supergraph_delegate",
+    toolset="supergraph",
+    schema=DELEGATE_SCHEMA,
+    handler=lambda args: supergraph_delegate(**args),
+    emoji="🚀",
+)
+registry.register(
+    name="supergraph_status",
+    toolset="supergraph",
+    schema=STATUS_SCHEMA,
+    handler=lambda args: supergraph_status(**args),
+    emoji="📡",
+)
+registry.register(
+    name="supergraph_steer",
+    toolset="supergraph",
+    schema=STEER_SCHEMA,
+    handler=lambda args: supergraph_steer(**args),
+    emoji="🛑",
+)
+registry.register(
+    name="list_standalone_agents",
+    toolset="supergraph",
+    schema=LIST_AGENTS_SCHEMA,
+    handler=lambda args: list_standalone_agents(),
+    emoji="📋",
+)
+registry.register(
+    name="standalone_agent_execute",
+    toolset="supergraph",
+    schema=STANDALONE_EXEC_SCHEMA,
+    handler=lambda args: standalone_agent_execute(**args),
+    emoji="🤖",
+)
+registry.register(
+    name="run_deep_research",
+    toolset="supergraph",
+    schema=DEEP_RESEARCH_SCHEMA,
+    handler=lambda args: run_deep_research(**args),
+    emoji="🔬",
+)

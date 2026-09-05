@@ -8,6 +8,7 @@ Uses python-telegram-bot library for:
 """
 
 import asyncio
+import contextlib
 import dataclasses
 import inspect
 import json
@@ -6417,6 +6418,76 @@ class TelegramAdapter(BasePlatformAdapter):
             logger.warning("[%s] send_exec_approval failed: %s", self.name, _redact_telegram_error_text(e))
             return SendResult(success=False, error=_redact_telegram_error_text(e))
 
+    async def send_human_review(
+        self,
+        chat_id: str,
+        item: Dict[str, Any],
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> SendResult:
+        """Send an interactive Human-in-the-Loop review card with callback buttons.
+
+        Buttons call the Supergraph Bridge to resolve the review gate and unfreeze execution.
+        """
+        if not self._bot:
+            return SendResult(success=False, error="Not connected")
+
+        try:
+            item_id = item.get("item_id", "")
+            short_id = item.get("short_id") or (item_id[4:] if item_id.startswith("rev_") else item_id[:8])
+            title = item.get("title", "Review Required")
+            desc = item.get("description", "")
+            category = item.get("category", "ambiguity")
+            urgency = item.get("urgency", "normal").upper()
+            task_id = item.get("task_id", "")
+            diff_snippet = item.get("diff_snippet")
+
+            if not hasattr(self, "_human_review_state"):
+                self._human_review_state = {}
+            self._human_review_state[short_id] = item_id
+
+            cat_emoji = {
+                "ambiguity": "❓",
+                "security_risk": "⚠️",
+                "code_review": "📝",
+                "external_delegation": "🌐",
+            }.get(category, "🔍")
+            urgency_badge = "🔴 <b>BLOCKING</b>" if urgency == "BLOCKING" else f"🟡 <i>{urgency}</i>"
+
+            text = (
+                f"{cat_emoji} <b>[SUPERGRAPH HITL] {title}</b>\n"
+                f"<b>Urgency:</b> {urgency_badge} | <b>Task:</b> <code>{task_id}</code>\n\n"
+                f"{desc}\n"
+            )
+            if diff_snippet:
+                snippet_cut = diff_snippet[:400] + ("..." if len(diff_snippet) > 400 else "")
+                text += f"\n<pre><code class=\"language-diff\">{_html.escape(snippet_cut)}</code></pre>\n"
+
+            buttons = []
+            raw_options = item.get("options") or item.get("proposed_options") or []
+            options = [o.model_dump() if hasattr(o, "model_dump") else o for o in raw_options]
+            for opt in options:
+                opt_id = opt.get("id", 1)
+                opt_text = opt.get("text", f"Option {opt_id}")
+                cb_data = f"hr:{opt_id}:{short_id}"
+                buttons.append(InlineKeyboardButton(f"👉 {opt_text[:28]}", callback_data=cb_data))
+
+            buttons.append(InlineKeyboardButton("🛑 Abort Task", callback_data=f"hr:abort:{short_id}"))
+            rows = [buttons[i:i + 2] for i in range(0, len(buttons), 2)]
+            keyboard = InlineKeyboardMarkup(rows)
+
+            kwargs: Dict[str, Any] = {
+                "chat_id": normalize_telegram_chat_id(chat_id),
+                "text": text,
+                "parse_mode": ParseMode.HTML,
+                "reply_markup": keyboard,
+                **self._link_preview_kwargs(),
+            }
+            msg = await self._send_message_with_thread_fallback(**kwargs)
+            return SendResult(success=True, message_id=str(msg.message_id))
+        except Exception as e:
+            logger.warning("[%s] send_human_review failed: %s", self.name, _redact_telegram_error_text(e))
+            return SendResult(success=False, error=_redact_telegram_error_text(e))
+
     async def send_slash_confirm(
         self, chat_id: str, title: str, message: str, session_key: str,
         confirm_id: str, metadata: Optional[Dict[str, Any]] = None,
@@ -7336,6 +7407,73 @@ class TelegramAdapter(BasePlatformAdapter):
                 query_user_name=query_user_name,
             )
             return
+
+        # --- Human Review callbacks (hr:choice:short_id) ---
+        if data.startswith("hr:"):
+            parts = data.split(":", 2)
+            if len(parts) == 3:
+                choice = parts[1]
+                short_id = parts[2]
+
+                caller_id = str(getattr(query.from_user, "id", ""))
+                if not self._is_callback_user_authorized(
+                    caller_id,
+                    chat_id=query_chat_id,
+                    chat_type=str(query_chat_type) if query_chat_type is not None else None,
+                    thread_id=str(query_thread_id) if query_thread_id is not None else None,
+                    user_name=query_user_name,
+                ):
+                    await query.answer(text="⛔ You are not authorized to resolve reviews.")
+                    return
+
+                if not hasattr(self, "_human_review_state"):
+                    self._human_review_state = {}
+                item_id = self._human_review_state.get(short_id, f"rev_{short_id}")
+                user_display = getattr(query.from_user, "first_name", "Operator")
+
+                is_abort = choice.lower() == "abort"
+                payload = {
+                    "item_id": item_id,
+                    "action": "reject" if is_abort else "approve",
+                    "freeform_guidance": f"Resolved via Telegram button by {user_display}: {'Abort' if is_abort else f'Option {choice}'}",
+                    "resolved_by": f"telegram:{user_display}",
+                }
+                if not is_abort:
+                    try:
+                        payload["selected_option_id"] = int(choice)
+                    except ValueError:
+                        pass
+
+                bridge_url = os.environ.get("HERMES_BRIDGE_URL", "http://127.0.0.1:8003")
+                resolve_url = f"{bridge_url}/v1/bridge/human_queue/resolve"
+                success = False
+                try:
+                    import urllib.request
+                    req_data = json.dumps(payload).encode("utf-8")
+                    req = urllib.request.Request(
+                        resolve_url,
+                        data=req_data,
+                        headers={"Content-Type": "application/json"},
+                        method="POST",
+                    )
+                    with urllib.request.urlopen(req, timeout=3.0) as resp:
+                        if resp.status == 200:
+                            success = True
+                except Exception as exc:
+                    logger.warning("[TelegramAdapter] Bridge resolve error: %s", exc)
+
+                if success:
+                    label = "🛑 Task Aborted" if is_abort else f"✅ Option {choice} Approved"
+                    edit_text = f"{label} by {user_display}"
+                    await query.answer(text=f"Review resolved: {label}")
+                    with contextlib.suppress(Exception):
+                        if query.message:
+                            orig_text = getattr(query.message, "text_html", None) or getattr(query.message, "text", "")
+                            new_text = f"{orig_text}\n\n<b>{edit_text}</b>"
+                            await query.message.edit_text(text=new_text, parse_mode=ParseMode.HTML, reply_markup=None)
+                else:
+                    await query.answer(text="⚠️ Failed to reach Supergraph Bridge or already resolved.")
+                return
 
         # --- Exec approval callbacks (ea:choice:id) ---
         if data.startswith("ea:"):

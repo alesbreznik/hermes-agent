@@ -361,10 +361,14 @@ class GatewayControlServer:
                     "supported_verbs": sorted(self._handlers),
                 }
             else:
+                try:
+                    res = handler(request)
+                except TypeError:
+                    res = handler()
                 response = {
                     "ok": True,
                     "protocol": CONTROL_PROTOCOL_VERSION,
-                    "result": handler(),
+                    "result": res,
                 }
         except Exception as exc:
             response = {
