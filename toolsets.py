@@ -321,6 +321,23 @@ TOOLSETS = {
             "supergraph_delegate",
             "supergraph_status",
             "supergraph_steer",
+            "list_standalone_agents",
+            "standalone_agent_execute",
+            "run_deep_research",
+        ],
+        "includes": [],
+    },
+
+    "research": {
+        "description": (
+            "Deep research and literature synthesis tools. "
+            "Allows Hermes to orchestrate multi-source web research, academic search, "
+            "and structured report synthesis via standalone GPT-Researcher."
+        ),
+        "tools": [
+            "run_deep_research",
+            "list_standalone_agents",
+            "standalone_agent_execute",
         ],
         "includes": [],
     },
