@@ -72,7 +72,7 @@ def supergraph_delegate(
                     "status": "dispatched",
                     "mission_id": mission_id,
                     "task_id": task_id,
-                    "tracking_url": f"{BRIDGE_URL}/v1/bridge/status/{task_id}",
+                    "tracking_url": f"{BRIDGE_URL}/v1/bridge/task/{task_id}",
                     "message": f"Mission accepted by Supergraph Coordinator. Ticket: {task_id}",
                     "local_only": local_only,
                     "auto_merge": auto_merge,
@@ -99,15 +99,21 @@ def supergraph_status(task_id: str) -> Dict[str, Any]:
     Queries active execution status, DAG progress, and milestone events for a delegated task.
     """
     try:
-        with httpx.Client(timeout=2.0) as client:
-            resp = client.get(f"{BRIDGE_URL}/health")
+        with httpx.Client(timeout=3.0) as client:
+            resp = client.get(f"{BRIDGE_URL}/v1/bridge/task/{task_id}")
             if resp.status_code == 200:
-                health = resp.json()
+                data = resp.json()
                 return {
-                    "status": "online",
+                    "status": "found",
                     "task_id": task_id,
-                    "bridge_health": health,
-                    "message": f"Task {task_id} is monitored by Supergraph Bridge on Port {health.get('port')}",
+                    "task_data": data,
+                    "message": f"Task {task_id} retrieved from Supergraph Bridge",
+                }
+            elif resp.status_code == 404:
+                return {
+                    "status": "not_found",
+                    "task_id": task_id,
+                    "message": f"Task {task_id} not found in Hermes Kanban",
                 }
     except Exception as e:
         return {
@@ -144,6 +150,129 @@ def supergraph_steer(
                 return {"status": "error", "message": f"Bridge steer failed with HTTP {resp.status_code}: {resp.text}"}
     except Exception as e:
         return {"status": "offline", "error": str(e), "message": f"Cannot connect to Bridge at {BRIDGE_URL}"}
+
+
+STANDALONE_PORT_MAP = {
+    "researcher": 5033,
+    "gpt_researcher": 5033,
+    "gpt_researcher_agent": 5033,
+    "browser_use": 5025,
+    "browser_use_agent": 5025,
+    "browser": 5025,
+    "open_interpreter": 5026,
+    "open_interpreter_agent": 5026,
+    "interpreter": 5026,
+    "openhands": 5030,
+    "openhands_agent": 5030,
+    "letta": 5031,
+    "letta_memory": 5031,
+    "letta_memory_agent": 5031,
+    "db_gpt": 5032,
+    "db_gpt_agent": 5032,
+}
+
+
+def list_standalone_agents() -> Dict[str, Any]:
+    """
+    Lists available standalone execution microagents (GPT-Researcher, Browser-Use,
+    Open-Interpreter, OpenHands, Letta Memory, DB-GPT) and their status.
+    """
+    try:
+        with httpx.Client(timeout=3.0) as client:
+            resp = client.get(f"{BRIDGE_URL}/v1/bridge/standalone_agents")
+            if resp.status_code == 200:
+                return resp.json()
+    except Exception:
+        pass
+
+    # Diagnostic fallback listing
+    agents = [
+        {"engine_id": "gpt_researcher_agent", "name": "GPT-Researcher", "port": 5033, "description": "Deep multi-source web research & report synthesis."},
+        {"engine_id": "browser_use_agent", "name": "Browser-Use", "port": 5025, "description": "Autonomous browser DOM automation and scraping."},
+        {"engine_id": "open_interpreter_agent", "name": "Open-Interpreter", "port": 5026, "description": "Stateful multi-language REPL code executor."},
+        {"engine_id": "openhands_agent", "name": "OpenHands", "port": 5030, "description": "Repository engineering and software sandboxes."},
+        {"engine_id": "letta_memory_agent", "name": "Letta Memory", "port": 5031, "description": "Tiered persistent memory block management."},
+        {"engine_id": "db_gpt_agent", "name": "DB-GPT", "port": 5032, "description": "Text-to-SQL synthesis and structured database queries."},
+    ]
+    return {"standalone_agents": agents, "total": len(agents), "status": "fallback_catalog"}
+
+
+def standalone_agent_execute(
+    agent_name: str,
+    task: str,
+    parameters: Optional[Dict[str, Any]] = None,
+    session_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Instantiates or calls a standalone microagent (e.g. gpt_researcher, open_interpreter, browser_use)
+    with a structured task and parameters.
+    """
+    payload = {
+        "agent_name": agent_name,
+        "task": task,
+        "parameters": parameters or {},
+        "session_id": session_id or os.environ.get("HERMES_SESSION_ID", "hermes_standalone"),
+    }
+
+    # 1. Attempt Bridge API
+    try:
+        with httpx.Client(timeout=10.0) as client:
+            resp = client.post(f"{BRIDGE_URL}/v1/bridge/standalone_agents/dispatch", json=payload)
+            if resp.status_code in [200, 201]:
+                return resp.json()
+    except Exception:
+        pass
+
+    # 2. Attempt direct socket to standalone agent
+    clean_name = agent_name.strip().lower().replace("-", "_")
+    port = STANDALONE_PORT_MAP.get(clean_name)
+    if port:
+        try:
+            with httpx.Client(timeout=10.0) as client:
+                direct_payload = dict(parameters or {})
+                direct_payload["task"] = task
+                if session_id:
+                    direct_payload["session_id"] = session_id
+                resp = client.post(f"http://127.0.0.1:{port}/v1/run", json=direct_payload)
+                if resp.status_code in [200, 201]:
+                    return resp.json()
+        except Exception:
+            pass
+
+    # 3. Diagnostic Mock Fallback compliant with Rule 3
+    logger.warning(
+        f"[TECHNICAL ERROR: LIVE SERVICE OFFLINE -> DIAGNOSTIC FALLBACK ACTIVATED] "
+        f"Standalone agent '{agent_name}' unavailable via Bridge or Direct Port {port}."
+    )
+    return {
+        "status": "completed_fallback",
+        "agent_name": agent_name,
+        "task": task,
+        "output": f"[DIAGNOSTIC FALLBACK] Standalone agent '{agent_name}' processed: {task[:80]}...",
+        "notice": "[TECHNICAL ERROR: LIVE SERVICE OFFLINE -> DIAGNOSTIC FALLBACK ACTIVATED]",
+    }
+
+
+def run_deep_research(
+    topic: str,
+    report_type: str = "research_report",
+    sources: Optional[List[str]] = None,
+    session_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Specialized deep research tool for the Hermes Researcher Agent.
+    Analyzes complex questions and synthesizes multi-source research briefs via GPT-Researcher.
+    """
+    params = {
+        "report_type": report_type,
+        "sources": sources or [],
+    }
+    return standalone_agent_execute(
+        agent_name="gpt_researcher_agent",
+        task=topic,
+        parameters=params,
+        session_id=session_id,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -198,6 +327,43 @@ try:
         },
     }
 
+    LIST_AGENTS_SCHEMA = {
+        "name": "list_standalone_agents",
+        "description": "Lists available standalone execution microagents (e.g. GPT-Researcher, Browser-Use, Open-Interpreter).",
+        "parameters": {
+            "type": "object",
+            "properties": {},
+        },
+    }
+
+    STANDALONE_EXEC_SCHEMA = {
+        "name": "standalone_agent_execute",
+        "description": "Executes a specialized task on a standalone microagent (e.g. gpt_researcher, open_interpreter, browser_use, openhands, db_gpt).",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "agent_name": {"type": "string", "description": "Target agent identifier: researcher, browser_use, open_interpreter, openhands, db_gpt, letta."},
+                "task": {"type": "string", "description": "Structured task description or prompt."},
+                "parameters": {"type": "object", "description": "Optional parameters specific to the agent."},
+            },
+            "required": ["agent_name", "task"],
+        },
+    }
+
+    DEEP_RESEARCH_SCHEMA = {
+        "name": "run_deep_research",
+        "description": "Conducts deep multi-source web research and generates a structured research report with citations via standalone GPT-Researcher.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "topic": {"type": "string", "description": "Detailed research topic, questions, or brief."},
+                "report_type": {"type": "string", "enum": ["research_report", "detailed_report", "outline"], "default": "research_report"},
+                "sources": {"type": "array", "items": {"type": "string"}, "description": "Optional custom domains or URLs to prioritize."},
+            },
+            "required": ["topic"],
+        },
+    }
+
     registry.register(
         name="supergraph_delegate",
         toolset="supergraph",
@@ -218,6 +384,49 @@ try:
         schema=STEER_SCHEMA,
         handler=lambda args: supergraph_steer(**args),
         emoji="🛑",
+    )
+    registry.register(
+        name="list_standalone_agents",
+        toolset="supergraph",
+        schema=LIST_AGENTS_SCHEMA,
+        handler=lambda args: list_standalone_agents(),
+        emoji="📋",
+    )
+    registry.register(
+        name="standalone_agent_execute",
+        toolset="supergraph",
+        schema=STANDALONE_EXEC_SCHEMA,
+        handler=lambda args: standalone_agent_execute(**args),
+        emoji="🤖",
+    )
+    registry.register(
+        name="run_deep_research",
+        toolset="supergraph",
+        schema=DEEP_RESEARCH_SCHEMA,
+        handler=lambda args: run_deep_research(**args),
+        emoji="🔬",
+    )
+    # Also register under research toolset
+    registry.register(
+        name="run_deep_research",
+        toolset="research",
+        schema=DEEP_RESEARCH_SCHEMA,
+        handler=lambda args: run_deep_research(**args),
+        emoji="🔬",
+    )
+    registry.register(
+        name="list_standalone_agents",
+        toolset="research",
+        schema=LIST_AGENTS_SCHEMA,
+        handler=lambda args: list_standalone_agents(),
+        emoji="📋",
+    )
+    registry.register(
+        name="standalone_agent_execute",
+        toolset="research",
+        schema=STANDALONE_EXEC_SCHEMA,
+        handler=lambda args: standalone_agent_execute(**args),
+        emoji="🤖",
     )
 except ImportError:
     pass
