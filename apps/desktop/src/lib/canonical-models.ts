@@ -348,7 +348,7 @@ export function buildCanonicalModelCatalog(providers: ModelProviderOption[]) {
 
   for (const prov of sortedProviders) {
     const isAuthenticated = isLocalOrConfiguredProvider(prov)
-    const provModels = (prov.models || []).map(m => (typeof m === 'string' ? m : m.id || m.name || ''))
+    const provModels = (prov.models || []).map((m: any) => (typeof m === 'string' ? m : m.id || m.name || ''))
 
     for (const rawId of provModels) {
       if (!rawId) continue

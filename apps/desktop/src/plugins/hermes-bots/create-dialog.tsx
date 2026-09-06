@@ -694,10 +694,9 @@ export function CreateAgentDialog({ open, onClose, roster }: CreateAgentDialogPr
             />
           )}
 
-          {/* Model & Brain (Model-First with Auto-Fallback) */}
+          {/* Model & Brain */}
           <div className="grid gap-2 rounded-md border border-(--ui-stroke-secondary) p-2.5">
             <ModelPicker
-              autoFallback={autoFallback}
               onChange={patch => {
                 if ('provider' in patch && patch.provider !== undefined) {
                   setProvider(patch.provider)
@@ -716,12 +715,6 @@ export function CreateAgentDialog({ open, onClose, roster }: CreateAgentDialogPr
                 fallback_providers: fallbackProviders
               }}
             />
-            {fallbackProviders.length > 0 && autoFallback ? (
-              <div className="flex items-center gap-1.5 text-[0.7rem] text-(--ui-text-tertiary)">
-                <span className="inline-block size-1.5 rounded-full bg-emerald-500" />
-                <span>Auto-fallback: {fallbackProviders.map(f => `${f.provider}`).join(' → ')}</span>
-              </div>
-            ) : null}
           </div>
 
           <Button
