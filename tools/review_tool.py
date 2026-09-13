@@ -58,33 +58,36 @@ def review_resolve(
 # Hermes Tool Registry registration
 try:
     from tools.registry import registry
+except ImportError:
+    registry = None
 
-    REVIEW_LIST_SCHEMA = {
-        "name": "review_list_pending",
-        "description": "Lists all pending tasks awaiting human review, clarification, or approval.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "urgency": {"type": "string", "enum": ["low", "normal", "blocking"], "description": "Filter by urgency level."},
-            },
+REVIEW_LIST_SCHEMA = {
+    "name": "review_list_pending",
+    "description": "Lists all pending tasks awaiting human review, clarification, or approval.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "urgency": {"type": "string", "enum": ["low", "normal", "blocking"], "description": "Filter by urgency level."},
         },
-    }
+    },
+}
 
-    REVIEW_RESOLVE_SCHEMA = {
-        "name": "review_resolve",
-        "description": "Submits operator resolution for a pending review item, unfreezing the paused execution step.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "item_id": {"type": "string", "description": "Target review item identifier."},
-                "action": {"type": "string", "enum": ["approve", "reject", "redirect", "dismiss"], "default": "approve"},
-                "freeform_guidance": {"type": "string", "description": "Clarifications or guidance for the agent."},
-                "selected_option_id": {"type": "integer", "description": "Selected option identifier."},
-            },
-            "required": ["item_id"],
+REVIEW_RESOLVE_SCHEMA = {
+    "name": "review_resolve",
+    "description": "Submits operator resolution for a pending review item, unfreezing the paused execution step.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "item_id": {"type": "string", "description": "Target review item identifier."},
+            "action": {"type": "string", "enum": ["approve", "reject", "redirect", "dismiss"], "default": "approve"},
+            "freeform_guidance": {"type": "string", "description": "Clarifications or guidance for the agent."},
+            "selected_option_id": {"type": "integer", "description": "Selected option identifier."},
         },
-    }
+        "required": ["item_id"],
+    },
+}
 
+if registry is not None:
     registry.register(
         name="review_list_pending",
         toolset="supergraph",
@@ -99,5 +102,3 @@ try:
         handler=lambda args: review_resolve(**args),
         emoji="✅",
     )
-except ImportError:
-    pass

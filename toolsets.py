@@ -85,6 +85,9 @@ _HERMES_CORE_TOOLS = [
     "kanban_attach", "kanban_attach_url", "kanban_attachments",
     # Computer use (macOS, gated on cua-driver being installed via check_fn)
     "computer_use",
+    # Supergraph 4-Plane OS delegation and standalone research
+    "supergraph_delegate", "supergraph_status", "supergraph_steer",
+    "list_standalone_agents", "standalone_agent_execute", "run_deep_research",
 ]
 
 # Webhook events may originate from untrusted third-party content (for example,

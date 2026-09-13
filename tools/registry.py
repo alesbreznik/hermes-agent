@@ -84,11 +84,24 @@ def _is_registry_register_call(node: ast.AST) -> bool:
     )
 
 
+def _has_registry_register_call(stmts: list[ast.stmt]) -> bool:
+    """Check module-level statements and simple control flow (if/try) for registry.register calls."""
+    for stmt in stmts:
+        if _is_registry_register_call(stmt):
+            return True
+        if isinstance(stmt, (ast.If, ast.Try)):
+            if _has_registry_register_call(stmt.body) or _has_registry_register_call(stmt.orelse):
+                return True
+            if isinstance(stmt, ast.Try) and _has_registry_register_call(stmt.finalbody):
+                return True
+    return False
+
+
 def _module_registers_tools(module_path: Path) -> bool:
     """Return True when the module contains a top-level ``registry.register(...)`` call.
 
-    Only inspects module-body statements so that helper modules which happen
-    to call ``registry.register()`` inside a function are not picked up.
+    Only inspects module-body statements and top-level guard blocks so that helper
+    modules which happen to call ``registry.register()`` inside a function are not picked up.
 
     A cheap text prefilter avoids the ``ast.parse`` cost for files that do not
     mention both ``registry`` and ``register`` — a necessary condition for a
@@ -105,7 +118,7 @@ def _module_registers_tools(module_path: Path) -> bool:
     except SyntaxError:
         return False
 
-    return any(_is_registry_register_call(stmt) for stmt in tree.body)
+    return _has_registry_register_call(tree.body)
 
 
 def discover_builtin_tools(tools_dir: Optional[Path] = None) -> List[str]:

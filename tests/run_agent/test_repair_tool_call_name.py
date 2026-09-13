@@ -125,3 +125,59 @@ class TestVolcEngineXmlPollution:
         # rest of the pipeline (fuzzy match at 0.7 cutoff) can still
         # recover the obvious target.
         assert repair('"terminal"') == "terminal"
+
+
+class TestAutoPromotionScopedTools:
+    """Test auto-promotion of deferred or authorized session tools."""
+
+    def test_promotes_scoped_tool_not_in_valid_names(self, monkeypatch):
+        from run_agent import AIAgent
+        stub = SimpleNamespace(
+            valid_tool_names=set(VALID),
+            tools=[],
+            enabled_toolsets=["supergraph"],
+            disabled_toolsets=None,
+        )
+        monkeypatch.setattr(
+            "agent.tool_executor._all_session_tool_names",
+            lambda a: frozenset({"supergraph_delegate", "supergraph_status"}),
+        )
+        repair_fn = AIAgent._repair_tool_call.__get__(stub, AIAgent)
+
+        assert "supergraph_delegate" not in stub.valid_tool_names
+        res = repair_fn("supergraph_delegate")
+        assert res == "supergraph_delegate"
+        assert "supergraph_delegate" in stub.valid_tool_names
+
+    def test_promotes_camel_case_scoped_tool(self, monkeypatch):
+        from run_agent import AIAgent
+        stub = SimpleNamespace(
+            valid_tool_names=set(VALID),
+            tools=[],
+            enabled_toolsets=["supergraph"],
+            disabled_toolsets=None,
+        )
+        monkeypatch.setattr(
+            "agent.tool_executor._all_session_tool_names",
+            lambda a: frozenset({"supergraph_delegate"}),
+        )
+        repair_fn = AIAgent._repair_tool_call.__get__(stub, AIAgent)
+        res = repair_fn("SupergraphDelegateTool")
+        assert res == "supergraph_delegate"
+        assert "supergraph_delegate" in stub.valid_tool_names
+
+    def test_unauthorized_tool_not_promoted(self, monkeypatch):
+        from run_agent import AIAgent
+        stub = SimpleNamespace(
+            valid_tool_names=set(VALID),
+            tools=[],
+            enabled_toolsets=["web"],
+            disabled_toolsets=None,
+        )
+        monkeypatch.setattr(
+            "agent.tool_executor._all_session_tool_names",
+            lambda a: frozenset({"web_search"}),
+        )
+        repair_fn = AIAgent._repair_tool_call.__get__(stub, AIAgent)
+        res = repair_fn("unauthorized_secret_tool")
+        assert res is None

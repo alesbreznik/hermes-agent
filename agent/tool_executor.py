@@ -421,6 +421,52 @@ def _tool_search_scoped_names(agent) -> frozenset:
     return names
 
 
+def _all_session_tool_names(agent) -> frozenset:
+    """Return all tool names (direct and deferrable) authorized for this session.
+
+    Used by the tool repair pipeline to dynamically auto-promote tools that
+    the model discovers and calls directly without going through the bridge.
+    """
+    try:
+        import model_tools
+        from tools.registry import registry as _registry
+    except Exception:
+        return frozenset()
+
+    enabled = getattr(agent, "enabled_toolsets", None)
+    disabled = getattr(agent, "disabled_toolsets", None)
+    cache_key = (
+        _registry.current_scope_key(),
+        getattr(_registry, "_generation", 0),
+        frozenset(enabled) if enabled is not None else None,
+        frozenset(disabled) if disabled is not None else None,
+    )
+    cached = getattr(agent, "_all_session_tools_cache", None)
+    if cached is not None and cached[0] == cache_key:
+        return cached[1]
+    try:
+        scoped_defs = model_tools.get_tool_definitions(
+            enabled_toolsets=enabled,
+            disabled_toolsets=disabled,
+            quiet_mode=True,
+            skip_tool_search_assembly=True,
+        ) or []
+        names = set()
+        for t in scoped_defs:
+            if isinstance(t, dict):
+                fn = t.get("function")
+                if isinstance(fn, dict) and "name" in fn:
+                    names.add(fn["name"])
+        fnames = frozenset(names)
+    except Exception:
+        fnames = frozenset()
+    try:
+        agent._all_session_tools_cache = (cache_key, fnames)
+    except Exception:
+        pass
+    return fnames
+
+
 @dataclass
 class _ManagedToolResult:
     result: Any

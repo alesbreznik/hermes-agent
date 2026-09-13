@@ -3767,6 +3767,40 @@ def repair_tool_call(agent, tool_name: str) -> str | None:
     if matches:
         return matches[0]
 
+    # Auto-promotion for authorized session tools: if the model calls a tool
+    # directly that was deferred (e.g. via Tool Search) or not yet exposed in
+    # valid_tool_names, dynamically promote it so execution proceeds seamlessly.
+    try:
+        from agent.tool_executor import _all_session_tool_names, _tool_search_scoped_names
+        scoped = _all_session_tool_names(agent) | _tool_search_scoped_names(agent)
+    except Exception:
+        scoped = frozenset()
+
+    if scoped:
+        def _promote(name: str) -> str:
+            if hasattr(agent, "valid_tool_names") and agent.valid_tool_names is not None:
+                if isinstance(agent.valid_tool_names, set):
+                    agent.valid_tool_names.add(name)
+                elif isinstance(agent.valid_tool_names, list):
+                    agent.valid_tool_names.append(name)
+            if hasattr(agent, "tools") and isinstance(agent.tools, list):
+                if not any(isinstance(t, dict) and t.get("function", {}).get("name") == name for t in agent.tools):
+                    try:
+                        from tools.registry import registry
+                        schema = registry.get_schema(name)
+                        if schema:
+                            agent.tools.append({"type": "function", "function": schema})
+                    except Exception:
+                        pass
+            return name
+
+        for c in cands:
+            if c and c in scoped:
+                return _promote(c)
+        scoped_matches = get_close_matches(lowered, scoped, n=1, cutoff=0.7)
+        if scoped_matches:
+            return _promote(scoped_matches[0])
+
     return None
 
 

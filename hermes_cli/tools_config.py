@@ -120,6 +120,9 @@ CONFIGURABLE_TOOLSETS = [
     ("discord_admin",   "🛡️  Discord Server Admin",    "list channels/roles, pin, assign roles"),
     ("yuanbao",          "🤖 Yuanbao",                  "group info, member queries, DM"),
     ("computer_use",     "🖱️  Computer Use (macOS/Windows/Linux)", "background desktop control via cua-driver"),
+    ("supergraph",       "🚀 Supergraph 4-Plane OS",    "supergraph_delegate, supergraph_status, supergraph_steer, run_deep_research"),
+    ("kanban",           "📋 Kanban Coordination",      "kanban_create, kanban_complete, kanban_comment"),
+    ("research",         "🔬 Deep Research",            "run_deep_research, list_standalone_agents, standalone_agent_execute"),
 ]
 
 
