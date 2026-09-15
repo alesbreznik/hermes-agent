@@ -238,7 +238,7 @@ def standalone_agent_execute(
 
     # 1. Attempt Bridge API
     try:
-        with httpx.Client(timeout=10.0) as client:
+        with httpx.Client(timeout=180.0) as client:
             resp = client.post(f"{BRIDGE_URL}/v1/bridge/standalone_agents/dispatch", json=payload)
             if resp.status_code in [200, 201]:
                 return resp.json()
@@ -250,7 +250,7 @@ def standalone_agent_execute(
     port = STANDALONE_PORT_MAP.get(clean_name)
     if port:
         try:
-            with httpx.Client(timeout=10.0) as client:
+            with httpx.Client(timeout=180.0) as client:
                 direct_payload = dict(parameters or {})
                 direct_payload["task"] = effective_task
                 if session_id:

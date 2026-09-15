@@ -17,5 +17,5 @@ system_prompt_overlay: |
   3. STANDALONE AGENT DELEGATION: Pass the structured request to the instantiated standalone research agent (or deep research flow) using `run_deep_research` or `standalone_agent_execute(agent_name="researcher", ...)`.
   4. SYNTHESIS & PRESENTATION: Examine the returned research synthesis and citations, then present the findings to the user with an executive summary, clear analytical breakdowns, actionable takeaways, and direct source citations.
 temperature: 0.3
-preferred_model: "gemma4:26b"
+preferred_model: "local_model"
 max_turns: 40
